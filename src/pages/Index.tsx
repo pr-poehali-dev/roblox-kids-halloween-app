@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 
 const PUMPKIN_IMG = "https://cdn.poehali.dev/projects/95aaf91c-f043-4c26-8422-6388d2490af6/files/13070281-8ece-47cd-8090-cafe5f5cdfa7.jpg";
@@ -131,173 +131,421 @@ const rarityColor: Record<string, string> = {
   "Легендарный": "#FFD700",
 };
 
-function GameScreen({ server, onExit, nightCount, setNightCount }: {
-  server: typeof servers[0];
-  onExit: () => void;
-  nightCount: number;
-  setNightCount: (n: number) => void;
-}) {
+// ─── Tile types ───────────────────────────────────────────────────────────────
+// 0=floor 1=wall 2=door(closed) 3=door(open) 4=item 5=enemy-spawn 6=chest
+const TILE = { FLOOR: 0, WALL: 1, DOOR: 2, DOOR_OPEN: 3, ITEM: 4, SPAWN: 5, CHEST: 6 } as const;
+const TS = 36; // tile size px
+
+// Per-server map configs
+const MAPS: Record<string, { tiles: number[][], items: {r:number,c:number,emoji:string,name:string,pts:number}[], enemies: {r:number,c:number,emoji:string,hp:number}[], bg: string, wall: string, floor: string }> = {
+  dendi: {
+    bg: "#1A0500", wall: "#8B2500", floor: "#2D1000",
+    tiles: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,1,0,0,0,0,0,0,1],
+      [1,0,4,0,0,0,2,0,0,4,0,0,0,1],
+      [1,0,0,0,5,0,1,0,5,0,0,0,0,1],
+      [1,0,0,0,0,0,1,0,0,0,0,6,0,1],
+      [1,1,2,1,1,1,1,1,1,2,1,1,1,1],
+      [1,0,0,0,0,0,1,0,0,0,0,0,0,1],
+      [1,0,6,0,5,0,1,0,4,0,5,0,0,1],
+      [1,0,0,0,0,0,2,0,0,0,0,0,0,1],
+      [1,0,4,0,0,0,1,0,0,0,0,6,0,1],
+      [1,0,0,0,0,0,1,0,5,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    items: [
+      {r:2,c:2,emoji:"🎃",name:"Тыква",pts:15},
+      {r:2,c:9,emoji:"🍬",name:"Конфета",pts:10},
+      {r:9,c:2,emoji:"🎃",name:"Тыква",pts:15},
+      {r:6,c:8,emoji:"🍬",name:"Конфета",pts:10},
+    ],
+    enemies: [
+      {r:3,c:4,emoji:"👾",hp:2},
+      {r:3,c:8,emoji:"👾",hp:2},
+      {r:7,c:4,emoji:"👾",hp:3},
+      {r:10,c:8,emoji:"👾",hp:2},
+    ],
+  },
+  brookhaven: {
+    bg: "#0A0020", wall: "#3D1A6E", floor: "#180840",
+    tiles: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,1,0,0,0,0,1,0,0,0,1],
+      [1,0,4,0,1,0,6,0,0,1,0,4,0,1],
+      [1,0,0,0,2,0,0,0,5,2,0,0,0,1],
+      [1,1,2,1,1,0,0,0,0,1,1,2,1,1],
+      [1,0,0,0,0,0,5,0,0,0,0,0,0,1],
+      [1,0,6,0,0,0,0,0,0,0,0,6,0,1],
+      [1,0,0,0,5,0,0,0,5,0,0,0,0,1],
+      [1,1,2,1,1,1,2,1,1,1,2,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,4,0,5,0,4,0,5,0,4,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    items: [
+      {r:2,c:2,emoji:"🏚️",name:"Ключ от дома",pts:20},
+      {r:2,c:11,emoji:"🔑",name:"Золотой ключ",pts:30},
+      {r:10,c:2,emoji:"🕯️",name:"Свеча",pts:10},
+      {r:10,c:6,emoji:"🏚️",name:"Ключ от дома",pts:20},
+      {r:10,c:10,emoji:"🕯️",name:"Свеча",pts:10},
+    ],
+    enemies: [
+      {r:3,c:8,emoji:"🧟",hp:3},
+      {r:5,c:6,emoji:"🧟",hp:2},
+      {r:7,c:4,emoji:"🧟",hp:3},
+      {r:7,c:8,emoji:"🧟",hp:2},
+      {r:10,c:4,emoji:"🧟",hp:3},
+      {r:10,c:8,emoji:"🧟",hp:4},
+    ],
+  },
+  "99nights": {
+    bg: "#001A00", wall: "#0A3D0A", floor: "#001500",
+    tiles: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,6,0,1,1,2,1,1,0,0,6,0,1],
+      [1,0,0,0,1,0,0,0,1,0,5,0,0,1],
+      [1,5,0,0,2,0,4,0,2,0,0,0,5,1],
+      [1,0,0,0,1,0,5,0,1,0,0,0,0,1],
+      [1,0,1,1,1,1,2,1,1,1,1,0,0,1],
+      [1,0,1,0,0,0,0,0,0,0,1,0,5,1],
+      [1,5,2,0,6,0,5,0,6,0,2,0,0,1],
+      [1,0,1,0,0,0,0,0,0,0,1,0,0,1],
+      [1,0,1,1,1,1,1,1,1,1,1,5,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    items: [
+      {r:2,c:2,emoji:"🌙",name:"Лунный камень",pts:25},
+      {r:2,c:11,emoji:"🌙",name:"Лунный камень",pts:25},
+      {r:4,c:6,emoji:"💎",name:"Кристалл ночи",pts:40},
+      {r:8,c:4,emoji:"🌙",name:"Лунный камень",pts:25},
+      {r:8,c:8,emoji:"💎",name:"Кристалл ночи",pts:40},
+    ],
+    enemies: [
+      {r:3,c:5,emoji:"💀",hp:4},
+      {r:4,c:1,emoji:"💀",hp:3},
+      {r:4,c:12,emoji:"💀",hp:3},
+      {r:5,c:6,emoji:"💀",hp:5},
+      {r:7,c:3,emoji:"💀",hp:4},
+      {r:7,c:9,emoji:"💀",hp:4},
+      {r:8,c:6,emoji:"💀",hp:6},
+    ],
+  },
+};
+
+const CHEST_LOOT = ["🗡️ Меч призрака", "🛡️ Щит тыквы", "🧪 Зелье силы", "👟 Сапоги ветра", "🎩 Шляпа ведьмы", "💍 Кольцо теней"];
+
+function GameScreen({ server, onExit }: { server: typeof servers[0]; onExit: () => void }) {
+  const mapCfg = MAPS[server.id];
+  const ROWS = mapCfg.tiles.length;
+  const COLS = mapCfg.tiles[0].length;
+
+  // State
+  const [playerPos, setPlayerPos] = useState(() => {
+    // find first walkable cell near centre
+    for (let r = 1; r < ROWS - 1; r++)
+      for (let c = 1; c < COLS - 1; c++)
+        if (mapCfg.tiles[r][c] === TILE.FLOOR) return { r, c };
+    return { r: 1, c: 1 };
+  });
+  const [doors, setDoors] = useState<Record<string, boolean>>({});         // "r,c" -> open
+  const [collectedItems, setCollectedItems] = useState<Set<string>>(new Set());
+  const [openedChests, setOpenedChests] = useState<Set<string>>(new Set());
+  const [inventory, setInventory] = useState<string[]>([]);
+  const [enemies, setEnemies] = useState(() => mapCfg.enemies.map((e, i) => ({ ...e, id: i, alive: true, curHp: e.hp })));
+  const [hp, setHp] = useState(5);
   const [score, setScore] = useState(0);
-  const [position, setPosition] = useState({ x: 50, y: 70 });
-  const [items, setItems] = useState(() =>
-    Array.from({ length: 6 }, (_, i) => ({
-      id: i,
-      x: 10 + Math.random() * 80,
-      y: 10 + Math.random() * 75,
-      collected: false,
-      emoji: server.id === "dendi" ? "🎃" : server.id === "brookhaven" ? "🏚️" : "🌙",
-    }))
-  );
-  const [monsters, setMonsters] = useState(() =>
-    Array.from({ length: server.id === "99nights" ? 3 : 2 }, (_, i) => ({
-      id: i,
-      x: 5 + Math.random() * 40,
-      y: 5 + Math.random() * 40,
-      emoji: server.id === "dendi" ? "👾" : server.id === "brookhaven" ? "🧟" : "💀",
-    }))
-  );
+  const [message, setMessage] = useState<{ text: string; color: string } | null>(null);
+  const [showInventory, setShowInventory] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [message, setMessage] = useState("");
+  const [night, setNight] = useState(1);
+  const msgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const collected = items.filter(it => it.collected).length;
-  const total = items.length;
+  const showMsg = useCallback((text: string, color = "#FFD700") => {
+    if (msgTimer.current) clearTimeout(msgTimer.current);
+    setMessage({ text, color });
+    msgTimer.current = setTimeout(() => setMessage(null), 1200);
+  }, []);
 
-  const move = (dx: number, dy: number) => {
+  // Enemy AI — move toward player every 900ms
+  useEffect(() => {
     if (gameOver) return;
-    setPosition(prev => {
-      const nx = Math.max(2, Math.min(96, prev.x + dx));
-      const ny = Math.max(2, Math.min(90, prev.y + dy));
-
-      // check item collection
-      setItems(its => its.map(it => {
-        if (!it.collected && Math.abs(it.x - nx) < 7 && Math.abs(it.y - ny) < 7) {
-          setScore(s => s + 10);
-          setMessage("🎃 +10 очков!");
-          setTimeout(() => setMessage(""), 900);
-          return { ...it, collected: true };
-        }
-        return it;
+    const id = setInterval(() => {
+      setEnemies(prev => prev.map(e => {
+        if (!e.alive) return e;
+        const dr = Math.sign(playerPos.r - e.r);
+        const dc = Math.sign(playerPos.c - e.c);
+        // try to move one step
+        const nr = e.r + (Math.random() < 0.6 ? dr : (Math.random() < 0.5 ? 1 : -1));
+        const nc = e.c + (Math.random() < 0.6 ? dc : (Math.random() < 0.5 ? 1 : -1));
+        const safe = nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1;
+        const tile = safe ? mapCfg.tiles[nr][nc] : TILE.WALL;
+        const blocked = tile === TILE.WALL || (tile === TILE.DOOR && !doors[`${nr},${nc}`]);
+        return blocked ? e : { ...e, r: nr, c: nc };
       }));
+    }, 900);
+    return () => clearInterval(id);
+  }, [gameOver, playerPos, doors, ROWS, COLS, mapCfg.tiles]);
 
-      // check monster collision
-      const hitMonster = monsters.some(m => Math.abs(m.x - nx) < 8 && Math.abs(m.y - ny) < 8);
-      if (hitMonster) {
-        if (server.id === "99nights") {
-          setNightCount(nightCount + 1);
-          setMessage(`💀 Ночь ${nightCount} закончилась!`);
-          setTimeout(() => setMessage(""), 1200);
-          setPosition({ x: 50, y: 70 });
-          setMonsters(ms => ms.map(m => ({ ...m, x: 5 + Math.random() * 40, y: 5 + Math.random() * 40 })));
-        } else {
-          setGameOver(true);
-        }
+  // Check enemy collision
+  useEffect(() => {
+    if (gameOver) return;
+    const hit = enemies.find(e => e.alive && e.r === playerPos.r && e.c === playerPos.c);
+    if (hit) {
+      setHp(prev => {
+        const next = prev - 1;
+        if (next <= 0) { setGameOver(true); showMsg("💀 Ты проиграл!", "#EF4444"); }
+        else showMsg(`💥 Удар! ❤️×${next}`, "#EF4444");
+        return Math.max(0, next);
+      });
+      // push player back
+      setPlayerPos(p => ({ r: Math.min(ROWS - 2, Math.max(1, p.r + (Math.random() < 0.5 ? -1 : 1))), c: Math.min(COLS - 2, Math.max(1, p.c + (Math.random() < 0.5 ? -1 : 1))) }));
+    }
+  }, [enemies, playerPos, gameOver, showMsg, ROWS, COLS]);
+
+  const tryMove = useCallback((dr: number, dc: number) => {
+    if (gameOver) return;
+    setPlayerPos(prev => {
+      const nr = prev.r + dr;
+      const nc = prev.c + dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return prev;
+      const tile = mapCfg.tiles[nr][nc];
+      const key = `${nr},${nc}`;
+
+      // Wall — blocked
+      if (tile === TILE.WALL) return prev;
+
+      // Closed door — open it
+      if (tile === TILE.DOOR && !doors[key]) {
+        setDoors(d => ({ ...d, [key]: true }));
+        showMsg("🚪 Дверь открыта!", "#FF7A00");
+        return prev;
       }
 
-      return { x: nx, y: ny };
+      // Collect item
+      const item = mapCfg.items.find(it => it.r === nr && it.c === nc && !collectedItems.has(`${it.r},${it.c}`));
+      if (item) {
+        setCollectedItems(s => new Set(s).add(`${item.r},${item.c}`));
+        setScore(s => s + item.pts);
+        showMsg(`${item.emoji} +${item.pts} очков!`, "#FFD700");
+      }
+
+      // Open chest
+      if (tile === TILE.CHEST && !openedChests.has(key)) {
+        setOpenedChests(s => new Set(s).add(key));
+        const loot = CHEST_LOOT[Math.floor(Math.random() * CHEST_LOOT.length)];
+        setInventory(inv => [...inv, loot]);
+        setScore(s => s + 50);
+        showMsg(`📦 ${loot}`, "#A855F7");
+      }
+
+      // Attack adjacent enemy
+      const enemy = enemies.find(e => e.alive && e.r === nr && e.c === nc);
+      if (enemy) {
+        setEnemies(es => es.map(e => {
+          if (e.id !== enemy.id) return e;
+          const newHp = e.curHp - 1;
+          if (newHp <= 0) {
+            setScore(s => s + 30);
+            showMsg("⚔️ Враг побеждён! +30", "#39D353");
+            return { ...e, alive: false, curHp: 0 };
+          }
+          showMsg(`⚔️ Удар! ❤️×${newHp}`, "#FF7A00");
+          return { ...e, curHp: newHp };
+        }));
+        return prev; // don't move into enemy cell
+      }
+
+      return { r: nr, c: nc };
     });
+  }, [gameOver, ROWS, COLS, mapCfg, doors, collectedItems, openedChests, enemies, showMsg]);
+
+  // Keyboard support
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp" || e.key === "w") { e.preventDefault(); tryMove(-1, 0); }
+      if (e.key === "ArrowDown" || e.key === "s") { e.preventDefault(); tryMove(1, 0); }
+      if (e.key === "ArrowLeft" || e.key === "a") { e.preventDefault(); tryMove(0, -1); }
+      if (e.key === "ArrowRight" || e.key === "d") { e.preventDefault(); tryMove(0, 1); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [tryMove]);
+
+  const allCollected = collectedItems.size === mapCfg.items.length;
+  const win = allCollected && enemies.every(e => !e.alive);
+
+  // 99nights — on win advance night
+  const nextNight = () => {
+    setNight(n => n + 1);
+    setHp(5);
+    setScore(s => s + 100);
+    setCollectedItems(new Set());
+    setOpenedChests(new Set());
+    setDoors({});
+    setEnemies(mapCfg.enemies.map((e, i) => ({ ...e, id: i, alive: true, curHp: e.hp + night })));
+    setPlayerPos({ r: 1, c: 1 });
   };
 
   const restart = () => {
-    setScore(0);
-    setGameOver(false);
-    setPosition({ x: 50, y: 70 });
-    setItems(Array.from({ length: 6 }, (_, i) => ({
-      id: i, x: 10 + Math.random() * 80, y: 10 + Math.random() * 75, collected: false,
-      emoji: server.id === "dendi" ? "🎃" : server.id === "brookhaven" ? "🏚️" : "🌙",
-    })));
-    setMonsters(Array.from({ length: server.id === "99nights" ? 3 : 2 }, (_, i) => ({
-      id: i, x: 5 + Math.random() * 40, y: 5 + Math.random() * 40,
-      emoji: server.id === "dendi" ? "👾" : server.id === "brookhaven" ? "🧟" : "💀",
-    })));
+    setHp(5); setScore(0); setNight(1); setGameOver(false);
+    setCollectedItems(new Set()); setOpenedChests(new Set()); setDoors({});
+    setEnemies(mapCfg.enemies.map((e, i) => ({ ...e, id: i, alive: true, curHp: e.hp })));
+    setInventory([]); setPlayerPos({ r: 1, c: 1 });
+  };
+
+  // Camera: centre on player, clamp to map bounds
+  const viewW = Math.min(10, COLS);
+  const viewH = Math.min(9, ROWS);
+  const camC = Math.max(0, Math.min(COLS - viewW, playerPos.c - Math.floor(viewW / 2)));
+  const camR = Math.max(0, Math.min(ROWS - viewH, playerPos.r - Math.floor(viewH / 2)));
+
+  const getTileStyle = (tile: number, r: number, c: number): React.CSSProperties => {
+    const key = `${r},${c}`;
+    if (tile === TILE.WALL) return { background: mapCfg.wall, border: `1px solid ${mapCfg.wall}cc` };
+    if (tile === TILE.DOOR) return doors[key] ? { background: mapCfg.floor, border: `1px solid #FF7A0066` } : { background: "#8B5A00", border: "1px solid #FF7A00" };
+    if (tile === TILE.CHEST) return { background: mapCfg.floor, border: `1px solid ${openedChests.has(key) ? "#33333366" : "#A855F7"}` };
+    if (tile === TILE.ITEM) return { background: mapCfg.floor, border: "none" };
+    if (tile === TILE.SPAWN) return { background: mapCfg.floor, border: "none" };
+    return { background: mapCfg.floor, border: `1px solid ${mapCfg.floor}88` };
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ border: `2px solid ${server.color}66` }}>
-      {/* Game HUD */}
-      <div className="flex items-center justify-between px-3 py-2" style={{ background: "rgba(0,0,0,0.5)" }}>
-        <div className="flex gap-3 text-sm font-bold">
-          <span style={{ color: server.color }}>⭐ {score}</span>
-          <span style={{ color: "#FFD700" }}>🎃 {collected}/{total}</span>
-          {server.id === "99nights" && <span style={{ color: "#39D353" }}>🌙 Ночь {nightCount}</span>}
+    <div className="rounded-2xl overflow-hidden select-none" style={{ border: `2px solid ${server.color}66` }}>
+      {/* HUD */}
+      <div className="flex items-center justify-between px-3 py-2 gap-2 flex-wrap" style={{ background: "rgba(0,0,0,0.7)" }}>
+        <div className="flex gap-2 text-xs font-bold flex-wrap">
+          <span style={{ color: "#EF4444" }}>{"❤️".repeat(hp)}</span>
+          <span style={{ color: "#FFD700" }}>⭐ {score}</span>
+          <span style={{ color: server.color }}>📦 {mapCfg.items.length - collectedItems.size} предм.</span>
+          {server.id === "99nights" && <span style={{ color: "#39D353" }}>🌙 Ночь {night}</span>}
         </div>
-        <button onClick={onExit} className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,200,150,0.7)" }}>
-          ✕ Выйти
-        </button>
+        <div className="flex gap-1">
+          <button onClick={() => setShowInventory(v => !v)}
+            className="text-xs px-2 py-1 rounded-lg font-bold"
+            style={{ background: showInventory ? "#A855F766" : "rgba(255,255,255,0.1)", color: "#A855F7", border: "1px solid #A855F755" }}>
+            🎒 {inventory.length}
+          </button>
+          <button onClick={onExit} className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,200,150,0.7)" }}>✕</button>
+        </div>
       </div>
 
-      {/* Game field */}
-      <div className="relative select-none" style={{ height: 240, background: server.bg, overflow: "hidden" }}>
-        {/* Grid lines */}
-        <div className="absolute inset-0 opacity-10" style={{
-          backgroundImage: "linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)",
-          backgroundSize: "32px 32px"
-        }} />
+      {/* Inventory panel */}
+      {showInventory && (
+        <div className="px-3 py-2 animate-slide-up" style={{ background: "rgba(139,63,191,0.15)", borderBottom: "1px solid #A855F733" }}>
+          <p className="text-xs font-bold mb-1" style={{ color: "#A855F7" }}>🎒 Инвентарь</p>
+          {inventory.length === 0
+            ? <p className="text-xs" style={{ color: "rgba(255,200,150,0.4)" }}>Пусто — открывай сундуки!</p>
+            : <div className="flex flex-wrap gap-1">{inventory.map((it, i) => (
+                <span key={i} className="text-xs px-2 py-1 rounded-lg" style={{ background: "rgba(139,63,191,0.3)", color: "#E9D5FF" }}>{it}</span>
+              ))}</div>
+          }
+        </div>
+      )}
 
+      {/* Map viewport */}
+      <div className="relative overflow-hidden" style={{ background: mapCfg.bg, height: viewH * TS }}>
+        {/* Tile grid */}
+        <div style={{ position: "absolute", top: 0, left: 0 }}>
+          {Array.from({ length: viewH }, (_, vr) => {
+            const r = camR + vr;
+            return (
+              <div key={r} style={{ display: "flex" }}>
+                {Array.from({ length: viewW }, (_, vc) => {
+                  const c = camC + vc;
+                  const tile = r < ROWS && c < COLS ? mapCfg.tiles[r][c] : TILE.WALL;
+                  const key = `${r},${c}`;
+                  const isPlayer = r === playerPos.r && c === playerPos.c;
+                  const enemy = enemies.find(e => e.alive && e.r === r && e.c === c);
+                  const item = mapCfg.items.find(it => it.r === r && it.c === c && !collectedItems.has(key));
+                  const isChest = tile === TILE.CHEST && !openedChests.has(key);
+                  const isDoorClosed = tile === TILE.DOOR && !doors[key];
+
+                  return (
+                    <div key={c} style={{ width: TS, height: TS, position: "relative", flexShrink: 0, ...getTileStyle(tile, r, c) }}>
+                      {/* Door indicator */}
+                      {isDoorClosed && (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🚪</div>
+                      )}
+                      {/* Chest */}
+                      {isChest && (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📦</div>
+                      )}
+                      {/* Item */}
+                      {item && (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, animation: "float3 2s ease-in-out infinite" }}>{item.emoji}</div>
+                      )}
+                      {/* Enemy */}
+                      {enemy && !isPlayer && (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 }}>
+                          <div style={{ fontSize: 18, lineHeight: 1 }}>{enemy.emoji}</div>
+                          <div style={{ display: "flex", gap: 1 }}>
+                            {Array.from({ length: enemy.curHp }, (_, i) => (
+                              <div key={i} style={{ width: 4, height: 4, borderRadius: 2, background: "#EF4444" }} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Player */}
+                      {isPlayer && (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, zIndex: 10, filter: "drop-shadow(0 0 4px #FF7A00)" }}>🧒</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Floating message */}
         {message && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-bold px-3 py-1 rounded-full z-20 animate-bounce-in"
-            style={{ background: "rgba(0,0,0,0.7)", color: server.color }}>
-            {message}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full z-20 whitespace-nowrap"
+            style={{ background: "rgba(0,0,0,0.85)", color: message.color, border: `1px solid ${message.color}55` }}>
+            {message.text}
           </div>
         )}
 
-        {/* Items */}
-        {items.map(it => !it.collected && (
-          <div key={it.id} className="absolute text-xl animate-float3 pointer-events-none"
-            style={{ left: `${it.x}%`, top: `${it.y}%`, transform: "translate(-50%,-50%)" }}>
-            {it.emoji}
-          </div>
-        ))}
-
-        {/* Monsters */}
-        {monsters.map(m => (
-          <div key={m.id} className="absolute text-2xl animate-wiggle pointer-events-none"
-            style={{ left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)" }}>
-            {m.emoji}
-          </div>
-        ))}
-
-        {/* Player */}
-        <div className="absolute text-2xl z-10 transition-all duration-100 pointer-events-none"
-          style={{ left: `${position.x}%`, top: `${position.y}%`, transform: "translate(-50%,-50%)" }}>
-          🧒
-        </div>
-
-        {/* Game over overlay */}
-        {gameOver && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
-            style={{ background: "rgba(0,0,0,0.8)" }}>
-            <div className="text-4xl mb-2">💀</div>
-            <div className="font-spooky text-xl mb-1" style={{ color: "#EF4444" }}>Игра окончена!</div>
-            <div className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.7)" }}>Счёт: {score} очков</div>
-            <button onClick={restart} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>
-              🔄 Играть снова
-            </button>
-          </div>
-        )}
-
-        {/* Win overlay */}
-        {collected === total && !gameOver && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
-            style={{ background: "rgba(0,0,0,0.8)" }}>
-            <div className="text-4xl mb-2 animate-wiggle inline-block">🏆</div>
-            <div className="font-spooky text-xl mb-1" style={{ color: server.color }}>Победа!</div>
-            <div className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.7)" }}>Счёт: {score} очков</div>
-            <button onClick={restart} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>
-              🎮 Ещё раз
-            </button>
+        {/* Overlays */}
+        {(gameOver || win) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{ background: "rgba(0,0,0,0.88)" }}>
+            <div className="text-4xl mb-2">{win ? "🏆" : "💀"}</div>
+            <div className="font-spooky text-xl mb-1" style={{ color: win ? server.color : "#EF4444" }}>
+              {win ? (server.id === "99nights" ? `Ночь ${night} пройдена!` : "Победа!") : "Игра окончена!"}
+            </div>
+            <div className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.7)" }}>Счёт: {score}</div>
+            {win && server.id === "99nights"
+              ? <button onClick={nextNight} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>🌙 Ночь {night + 1}</button>
+              : <button onClick={restart} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>🔄 Заново</button>
+            }
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div className="p-3" style={{ background: "rgba(0,0,0,0.4)" }}>
-        <p className="text-xs text-center mb-2" style={{ color: "rgba(255,200,150,0.5)" }}>Управление</p>
-        <div className="flex flex-col items-center gap-1">
-          <button onClick={() => move(0, -8)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▲</button>
-          <div className="flex gap-1">
-            <button onClick={() => move(-8, 0)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>◀</button>
-            <button onClick={() => move(0, 8)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▼</button>
-            <button onClick={() => move(8, 0)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▶</button>
+      {/* Hint bar */}
+      <div className="px-3 py-1 text-center" style={{ background: "rgba(0,0,0,0.5)" }}>
+        <p className="text-xs" style={{ color: "rgba(255,200,150,0.4)" }}>
+          {allCollected && !win ? "⚔️ Победи всех врагов!" : "🚪 Подходи к двери чтобы открыть · 📦 Сундук = лут · ⚔️ Иди на врага чтобы ударить"}
+        </p>
+      </div>
+
+      {/* D-pad controls */}
+      <div className="p-3" style={{ background: "rgba(0,0,0,0.6)" }}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-center gap-1">
+            <button onPointerDown={() => tryMove(-1, 0)} className="w-12 h-11 rounded-xl text-lg font-bold flex items-center justify-center active:scale-95 transition-transform" style={{ background: server.color + "44", color: server.color, border: `2px solid ${server.color}66`, touchAction: "none" }}>▲</button>
+            <div className="flex gap-1">
+              <button onPointerDown={() => tryMove(0, -1)} className="w-12 h-11 rounded-xl text-lg font-bold flex items-center justify-center active:scale-95 transition-transform" style={{ background: server.color + "44", color: server.color, border: `2px solid ${server.color}66`, touchAction: "none" }}>◀</button>
+              <button onPointerDown={() => tryMove(1, 0)} className="w-12 h-11 rounded-xl text-lg font-bold flex items-center justify-center active:scale-95 transition-transform" style={{ background: server.color + "44", color: server.color, border: `2px solid ${server.color}66`, touchAction: "none" }}>▼</button>
+              <button onPointerDown={() => tryMove(0, 1)} className="w-12 h-11 rounded-xl text-lg font-bold flex items-center justify-center active:scale-95 transition-transform" style={{ background: server.color + "44", color: server.color, border: `2px solid ${server.color}66`, touchAction: "none" }}>▶</button>
+            </div>
+          </div>
+          <div className="text-xs text-right" style={{ color: "rgba(255,200,150,0.4)" }}>
+            <div>Клавиши:</div>
+            <div>WASD / ↑↓←→</div>
+            <div className="mt-1">Собрано:</div>
+            <div style={{ color: server.color }}>{collectedItems.size}/{mapCfg.items.length}</div>
           </div>
         </div>
       </div>
@@ -314,8 +562,6 @@ export default function Index() {
   const [xp] = useState(3750);
   const [activeServer, setActiveServer] = useState<string | null>(null);
   const [playingServer, setPlayingServer] = useState<string | null>(null);
-  const [gameTimer, setGameTimer] = useState(0);
-  const [nightCount, setNightCount] = useState(1);
 
   const earnedAch = achievements.filter(a => a.earned).length;
   const totalPoints = achievements.filter(a => a.earned).reduce((s, a) => s + a.points, 0);
@@ -553,7 +799,7 @@ export default function Index() {
                         <p className="text-sm font-bold" style={{ color: "rgba(255,200,150,0.9)" }}>{s.game.goal}</p>
                       </div>
                       {playingServer === s.id ? (
-                        <GameScreen server={s} onExit={() => setPlayingServer(null)} nightCount={nightCount} setNightCount={setNightCount} />
+                        <GameScreen server={s} onExit={() => setPlayingServer(null)} />
                       ) : (
                         <button
                           className="w-full py-3 rounded-xl font-bold text-base block-btn"
