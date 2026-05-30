@@ -5,7 +5,7 @@ const PUMPKIN_IMG = "https://cdn.poehali.dev/projects/95aaf91c-f043-4c26-8422-63
 const PETS_IMG = "https://cdn.poehali.dev/projects/95aaf91c-f043-4c26-8422-6388d2490af6/files/d0a2bfa9-8c8c-46d1-abc7-38cea48cdd06.jpg";
 const QUEST_IMG = "https://cdn.poehali.dev/projects/95aaf91c-f043-4c26-8422-6388d2490af6/files/40c75b4e-bbb4-4165-a2d9-73a67c4ec2d4.jpg";
 
-type Tab = "home" | "characters" | "quests" | "pets" | "achievements";
+type Tab = "home" | "characters" | "quests" | "pets" | "achievements" | "servers";
 
 const characters = [
   { name: "Тыква Пит", emoji: "🎃", role: "Весельчак", color: "#FF7A00", desc: "Самый улыбчивый житель Хэллоуин-мира!", rarity: "Обычный", power: 45 },
@@ -67,12 +67,243 @@ const achievements = [
   { title: "Повелитель ночи", emoji: "🌙", desc: "Провёл 10 ночей в мире хэллоуина", earned: false, points: 500, color: "#A855F7" },
 ];
 
+const servers = [
+  {
+    id: "dendi",
+    name: "Мир Денди",
+    emoji: "🎮",
+    color: "#FF7A00",
+    bg: "linear-gradient(135deg, #3D1A00 0%, #1A0A00 100%)",
+    desc: "Классический хэллоуинский мир в стиле ретро-аркады! Собирай монеты, избегай монстров.",
+    players: 312,
+    maxPlayers: 500,
+    status: "online",
+    tags: ["Ретро", "Аркада", "PvE"],
+    features: ["🍄 Ретро-пиксели", "👾 Монстры-аркадники", "🏅 Таблица рекордов", "🎵 Чиптюн музыка"],
+    game: {
+      description: "Ты попадаешь в пиксельный хэллоуинский мир! Управляй своим персонажем, собирай тыквы и убегай от монстров.",
+      goal: "Собери 50 тыкв за 3 минуты",
+      controls: ["⬆️⬇️⬅️➡️ — движение", "🅰️ — прыжок", "🅱️ — атака"],
+    },
+  },
+  {
+    id: "brookhaven",
+    name: "Брукхейвен",
+    emoji: "🏘️",
+    color: "#A855F7",
+    bg: "linear-gradient(135deg, #1A0A3D 0%, #0A001A 100%)",
+    desc: "Жуткий хэллоуинский город! Исследуй дома, знакомься с жителями и находи секреты.",
+    players: 891,
+    maxPlayers: 1000,
+    status: "online",
+    tags: ["Ролевая", "Город", "Исследование"],
+    features: ["🏠 Дома с секретами", "👥 До 1000 игроков", "🛒 Магазин костюмов", "🌙 День/Ночь смена"],
+    game: {
+      description: "Добро пожаловать в Брукхейвен — город, где каждый дом скрывает тайну! Общайся, исследуй, веселись.",
+      goal: "Найди все 7 скрытых тыкв в городе",
+      controls: ["Клик — взаимодействие", "E — открыть инвентарь", "M — карта города"],
+    },
+  },
+  {
+    id: "99nights",
+    name: "99 Ночей",
+    emoji: "🌙",
+    color: "#39D353",
+    bg: "linear-gradient(135deg, #001A0A 0%, #0A1A00 100%)",
+    desc: "Выживи 99 страшных ночей подряд! Каждая ночь сложнее предыдущей. Ты справишься?",
+    players: 156,
+    maxPlayers: 300,
+    status: "online",
+    tags: ["Выживание", "Хоррор", "Хардкор"],
+    features: ["💀 99 уровней сложности", "🧟 Разные монстры", "🔥 Ловушки и бонусы", "🏆 Эксклюзивные награды"],
+    game: {
+      description: "Самый страшный режим! Каждую ночь появляются новые монстры. Продержись как можно дольше!",
+      goal: "Пережить как можно больше ночей",
+      controls: ["WASD — движение", "Пробел — прыжок", "E — использовать предмет"],
+    },
+  },
+];
+
 const rarityColor: Record<string, string> = {
   "Обычный": "#9CA3AF",
   "Редкий": "#60A5FA",
   "Эпический": "#A855F7",
   "Легендарный": "#FFD700",
 };
+
+function GameScreen({ server, onExit, nightCount, setNightCount }: {
+  server: typeof servers[0];
+  onExit: () => void;
+  nightCount: number;
+  setNightCount: (n: number) => void;
+}) {
+  const [score, setScore] = useState(0);
+  const [position, setPosition] = useState({ x: 50, y: 70 });
+  const [items, setItems] = useState(() =>
+    Array.from({ length: 6 }, (_, i) => ({
+      id: i,
+      x: 10 + Math.random() * 80,
+      y: 10 + Math.random() * 75,
+      collected: false,
+      emoji: server.id === "dendi" ? "🎃" : server.id === "brookhaven" ? "🏚️" : "🌙",
+    }))
+  );
+  const [monsters, setMonsters] = useState(() =>
+    Array.from({ length: server.id === "99nights" ? 3 : 2 }, (_, i) => ({
+      id: i,
+      x: 5 + Math.random() * 40,
+      y: 5 + Math.random() * 40,
+      emoji: server.id === "dendi" ? "👾" : server.id === "brookhaven" ? "🧟" : "💀",
+    }))
+  );
+  const [gameOver, setGameOver] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const collected = items.filter(it => it.collected).length;
+  const total = items.length;
+
+  const move = (dx: number, dy: number) => {
+    if (gameOver) return;
+    setPosition(prev => {
+      const nx = Math.max(2, Math.min(96, prev.x + dx));
+      const ny = Math.max(2, Math.min(90, prev.y + dy));
+
+      // check item collection
+      setItems(its => its.map(it => {
+        if (!it.collected && Math.abs(it.x - nx) < 7 && Math.abs(it.y - ny) < 7) {
+          setScore(s => s + 10);
+          setMessage("🎃 +10 очков!");
+          setTimeout(() => setMessage(""), 900);
+          return { ...it, collected: true };
+        }
+        return it;
+      }));
+
+      // check monster collision
+      const hitMonster = monsters.some(m => Math.abs(m.x - nx) < 8 && Math.abs(m.y - ny) < 8);
+      if (hitMonster) {
+        if (server.id === "99nights") {
+          setNightCount(nightCount + 1);
+          setMessage(`💀 Ночь ${nightCount} закончилась!`);
+          setTimeout(() => setMessage(""), 1200);
+          setPosition({ x: 50, y: 70 });
+          setMonsters(ms => ms.map(m => ({ ...m, x: 5 + Math.random() * 40, y: 5 + Math.random() * 40 })));
+        } else {
+          setGameOver(true);
+        }
+      }
+
+      return { x: nx, y: ny };
+    });
+  };
+
+  const restart = () => {
+    setScore(0);
+    setGameOver(false);
+    setPosition({ x: 50, y: 70 });
+    setItems(Array.from({ length: 6 }, (_, i) => ({
+      id: i, x: 10 + Math.random() * 80, y: 10 + Math.random() * 75, collected: false,
+      emoji: server.id === "dendi" ? "🎃" : server.id === "brookhaven" ? "🏚️" : "🌙",
+    })));
+    setMonsters(Array.from({ length: server.id === "99nights" ? 3 : 2 }, (_, i) => ({
+      id: i, x: 5 + Math.random() * 40, y: 5 + Math.random() * 40,
+      emoji: server.id === "dendi" ? "👾" : server.id === "brookhaven" ? "🧟" : "💀",
+    })));
+  };
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: `2px solid ${server.color}66` }}>
+      {/* Game HUD */}
+      <div className="flex items-center justify-between px-3 py-2" style={{ background: "rgba(0,0,0,0.5)" }}>
+        <div className="flex gap-3 text-sm font-bold">
+          <span style={{ color: server.color }}>⭐ {score}</span>
+          <span style={{ color: "#FFD700" }}>🎃 {collected}/{total}</span>
+          {server.id === "99nights" && <span style={{ color: "#39D353" }}>🌙 Ночь {nightCount}</span>}
+        </div>
+        <button onClick={onExit} className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,200,150,0.7)" }}>
+          ✕ Выйти
+        </button>
+      </div>
+
+      {/* Game field */}
+      <div className="relative select-none" style={{ height: 240, background: server.bg, overflow: "hidden" }}>
+        {/* Grid lines */}
+        <div className="absolute inset-0 opacity-10" style={{
+          backgroundImage: "linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)",
+          backgroundSize: "32px 32px"
+        }} />
+
+        {message && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-sm font-bold px-3 py-1 rounded-full z-20 animate-bounce-in"
+            style={{ background: "rgba(0,0,0,0.7)", color: server.color }}>
+            {message}
+          </div>
+        )}
+
+        {/* Items */}
+        {items.map(it => !it.collected && (
+          <div key={it.id} className="absolute text-xl animate-float3 pointer-events-none"
+            style={{ left: `${it.x}%`, top: `${it.y}%`, transform: "translate(-50%,-50%)" }}>
+            {it.emoji}
+          </div>
+        ))}
+
+        {/* Monsters */}
+        {monsters.map(m => (
+          <div key={m.id} className="absolute text-2xl animate-wiggle pointer-events-none"
+            style={{ left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)" }}>
+            {m.emoji}
+          </div>
+        ))}
+
+        {/* Player */}
+        <div className="absolute text-2xl z-10 transition-all duration-100 pointer-events-none"
+          style={{ left: `${position.x}%`, top: `${position.y}%`, transform: "translate(-50%,-50%)" }}>
+          🧒
+        </div>
+
+        {/* Game over overlay */}
+        {gameOver && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
+            style={{ background: "rgba(0,0,0,0.8)" }}>
+            <div className="text-4xl mb-2">💀</div>
+            <div className="font-spooky text-xl mb-1" style={{ color: "#EF4444" }}>Игра окончена!</div>
+            <div className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.7)" }}>Счёт: {score} очков</div>
+            <button onClick={restart} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>
+              🔄 Играть снова
+            </button>
+          </div>
+        )}
+
+        {/* Win overlay */}
+        {collected === total && !gameOver && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
+            style={{ background: "rgba(0,0,0,0.8)" }}>
+            <div className="text-4xl mb-2 animate-wiggle inline-block">🏆</div>
+            <div className="font-spooky text-xl mb-1" style={{ color: server.color }}>Победа!</div>
+            <div className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.7)" }}>Счёт: {score} очков</div>
+            <button onClick={restart} className="px-4 py-2 rounded-xl font-bold text-sm block-btn" style={{ background: server.color, color: "#0D0520" }}>
+              🎮 Ещё раз
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="p-3" style={{ background: "rgba(0,0,0,0.4)" }}>
+        <p className="text-xs text-center mb-2" style={{ color: "rgba(255,200,150,0.5)" }}>Управление</p>
+        <div className="flex flex-col items-center gap-1">
+          <button onClick={() => move(0, -8)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▲</button>
+          <div className="flex gap-1">
+            <button onClick={() => move(-8, 0)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>◀</button>
+            <button onClick={() => move(0, 8)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▼</button>
+            <button onClick={() => move(8, 0)} className="w-12 h-10 rounded-xl text-xl font-bold flex items-center justify-center block-btn" style={{ background: server.color + "33", color: server.color, border: `1.5px solid ${server.color}55` }}>▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>("home");
@@ -81,12 +312,17 @@ export default function Index() {
   const [questSelected, setQuestSelected] = useState<number | null>(null);
   const [coins] = useState(1240);
   const [xp] = useState(3750);
+  const [activeServer, setActiveServer] = useState<string | null>(null);
+  const [playingServer, setPlayingServer] = useState<string | null>(null);
+  const [gameTimer, setGameTimer] = useState(0);
+  const [nightCount, setNightCount] = useState(1);
 
   const earnedAch = achievements.filter(a => a.earned).length;
   const totalPoints = achievements.filter(a => a.earned).reduce((s, a) => s + a.points, 0);
 
   const navItems: { tab: Tab; emoji: string; label: string }[] = [
     { tab: "home", emoji: "🏠", label: "Главная" },
+    { tab: "servers", emoji: "🌐", label: "Серверы" },
     { tab: "characters", emoji: "🎭", label: "Персонажи" },
     { tab: "quests", emoji: "⚔️", label: "Квесты" },
     { tab: "pets", emoji: "🐾", label: "Питомцы" },
@@ -195,6 +431,23 @@ export default function Index() {
               </div>
             </div>
 
+            {/* Servers preview */}
+            <div>
+              <h3 className="font-spooky text-xl mb-3" style={{ color: "#39D353" }}>🌐 Игровые серверы</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {servers.map((s) => (
+                  <button key={s.id} onClick={() => setActiveTab("servers")} className="game-card rounded-2xl p-3 text-center" style={{ background: `${s.color}18`, border: `2px solid ${s.color}55` }}>
+                    <div className="text-3xl mb-1 animate-float3 inline-block">{s.emoji}</div>
+                    <div className="text-xs font-bold leading-tight" style={{ color: s.color }}>{s.name}</div>
+                    <div className="flex items-center justify-center gap-1 mt-1">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#39D353" }} />
+                      <span className="text-xs" style={{ color: "rgba(255,200,150,0.5)" }}>{s.players}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Active quest */}
             <div>
               <h3 className="font-spooky text-xl mb-3" style={{ color: "#FF7A00" }}>⚔️ Активный квест</h3>
@@ -230,6 +483,91 @@ export default function Index() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* SERVERS */}
+        {activeTab === "servers" && (
+          <div className="animate-slide-up space-y-4">
+            {/* Header */}
+            <div className="rounded-2xl p-4 text-center" style={{ background: "linear-gradient(135deg, rgba(57,211,83,0.15), rgba(168,85,247,0.1))", border: "2px solid rgba(57,211,83,0.35)" }}>
+              <div className="text-5xl mb-2 animate-wiggle inline-block">🌐</div>
+              <h2 className="font-spooky text-2xl mb-1" style={{ color: "#39D353" }}>Игровые серверы</h2>
+              <p className="text-sm" style={{ color: "rgba(255,200,150,0.6)" }}>Выбери мир и начни своё приключение!</p>
+            </div>
+
+            {/* Server cards */}
+            {servers.map((s) => (
+              <div key={s.id}>
+                <button
+                  className="w-full game-card rounded-2xl overflow-hidden text-left"
+                  style={{ border: `2px solid ${activeServer === s.id ? s.color : s.color + "44"}` }}
+                  onClick={() => setActiveServer(activeServer === s.id ? null : s.id)}
+                >
+                  {/* Card top */}
+                  <div className="p-4" style={{ background: s.bg }}>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-4xl animate-float3 inline-block">{s.emoji}</span>
+                        <div>
+                          <div className="font-spooky text-xl" style={{ color: s.color }}>{s.name}</div>
+                          <div className="flex gap-1 mt-1">
+                            {s.tags.map(t => (
+                              <span key={t} className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: `${s.color}22`, color: s.color }}>{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="flex items-center gap-1.5 justify-end mb-1">
+                          <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#39D353" }} />
+                          <span className="text-xs font-bold" style={{ color: "#39D353" }}>Онлайн</span>
+                        </div>
+                        <div className="text-xs" style={{ color: "rgba(255,200,150,0.5)" }}>
+                          👤 {s.players}/{s.maxPlayers}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-sm mb-3" style={{ color: "rgba(255,200,150,0.8)" }}>{s.desc}</p>
+
+                    {/* Player bar */}
+                    <div className="h-2 rounded-full overflow-hidden mb-1" style={{ background: "rgba(255,255,255,0.1)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${(s.players / s.maxPlayers) * 100}%`, background: `linear-gradient(90deg, ${s.color}, ${s.color}88)` }} />
+                    </div>
+                    <div className="text-xs" style={{ color: "rgba(255,200,150,0.4)" }}>{s.players} игроков онлайн</div>
+                  </div>
+
+                  {/* Expanded */}
+                  {activeServer === s.id && (
+                    <div className="p-4 animate-slide-up" style={{ background: `${s.color}0A`, borderTop: `1px solid ${s.color}33` }}>
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        {s.features.map((f, fi) => (
+                          <div key={fi} className="flex items-center gap-2 text-xs rounded-xl p-2" style={{ background: "rgba(255,255,255,0.05)" }}>
+                            <span>{f}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="rounded-xl p-3 mb-4" style={{ background: "rgba(0,0,0,0.3)", border: `1px solid ${s.color}33` }}>
+                        <p className="text-xs font-bold mb-1" style={{ color: s.color }}>🎯 Цель</p>
+                        <p className="text-sm font-bold" style={{ color: "rgba(255,200,150,0.9)" }}>{s.game.goal}</p>
+                      </div>
+                      {playingServer === s.id ? (
+                        <GameScreen server={s} onExit={() => setPlayingServer(null)} nightCount={nightCount} setNightCount={setNightCount} />
+                      ) : (
+                        <button
+                          className="w-full py-3 rounded-xl font-bold text-base block-btn"
+                          style={{ background: s.color, color: "#0D0520" }}
+                          onClick={(e) => { e.stopPropagation(); setPlayingServer(s.id); setActiveServer(s.id); }}
+                        >
+                          🚀 Войти в игру
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
